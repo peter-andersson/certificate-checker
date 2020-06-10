@@ -6,9 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -80,15 +78,14 @@ namespace CertifcateChecker
             {
                 foreach (var site in siteList)
                 {
-                    using (HttpResponseMessage response = await client.GetAsync(site.Url))
-                    {
-                        using (HttpContent content = response.Content)
-                        {
-                            Console.WriteLine($"Fetch data for site {site.Url}");
-                        }
-                    }
+                    using HttpResponseMessage response = await client.GetAsync(site.Url);
+                    using HttpContent content = response.Content;
+
+                    Console.WriteLine($"Fetch data for site {site.Url}");
                 }
             }
+
+            siteList = siteList.OrderBy(x => x.ValidDays).ToList();
 
             await SendEmail(siteList, settings);
 
@@ -116,46 +113,110 @@ namespace CertifcateChecker
             StringBuilder plainTextContent = new StringBuilder();
             StringBuilder htmlContent = new StringBuilder();
 
+            htmlContent.Append(@"
+<!DOCTYPE html>
+<html>
+<head>
+<title>Certificate status</title>
+
+<style type='text/css'>
+a:link {
+    text-decoration: none;
+    color: black;
+}
+
+a:visited {
+    text-decoration: none;
+    color: black;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: black;
+}
+
+a:active {
+    text-decoration: underline;
+    color: black;
+}
+
+.error {
+    background-color: red;
+    color: black;
+}
+
+.warning {
+    background-color: orange;
+    color: black;
+}
+
+.info {
+    background-color: yellow;
+    color: black;
+}
+</ style >
+</head>
+<body>
+    <table>
+        <tr>
+            <th>Site</th>
+            <th>Valid to</th>
+            <th>Expires in (days)</th>
+        </tr>");
+
             foreach (var site in siteList)
             {
-                var diff = site.ValidTo - DateTime.UtcNow;
+                if (site.ValidDays < 1)
+                {
+                    htmlContent.Append("<tr class=\"error\">");
+                }
+                else if (site.ValidDays < 7)
+                {
+                    htmlContent.Append("<tr class=\"warning\">");
+                }
+                else if (site.ValidDays < 30)
+                {
+                    htmlContent.Append("<tr class=\"info\"");
+                }
+                else
+                {
+                    htmlContent.Append("<tr>");
+                }
+                
+                htmlContent.Append($"<th>{site.Url}</th>");
+                htmlContent.Append($"<th>{site.ValidTo.Date}</th>");
+                htmlContent.Append($"<th>{site.ValidDays}</th>");
+                htmlContent.Append("</tr>");
+
                 string errorText = string.Empty;
 
-                if (diff.TotalDays < 0)
+                if (site.ValidDays < 0)
                 {
-                    errorText = $"ERROR: Certificate expired {diff.TotalDays.ToString("0")} days ago";
+                    errorText = $"ERROR: Certificate expired {site.ValidDays} days ago";
                 }
-                else if (diff.TotalDays < 7)
+                else if (site.ValidDays < 7)
                 {
-                    errorText = $"WARNING: Certificate expires in {diff.TotalDays.ToString("0")} days";
+                    errorText = $"WARNING: Certificate expires in {site.ValidDays} days";
                 }
-                else if (diff.TotalDays < 30)
+                else if (site.ValidDays < 30)
                 {
-                    errorText = $"INFO: Certificate expires in {diff.TotalDays.ToString("0")} days";
+                    errorText = $"INFO: Certificate expires in {site.ValidDays} days";
                 }
-
-                htmlContent.Append($"<h1>{site.Url}</h1>");
                 plainTextContent.Append($"{site.Url}{Environment.NewLine}");
-
                 if (!string.IsNullOrEmpty(errorText))
                 {
-                    htmlContent.Append($"<h1 style=\"background-color: black;color:Red;\">{errorText}</h1>");
-
                     plainTextContent.Append($"{errorText}");
                 }
 
-                htmlContent.Append($"<p>Valid from: {site.ValidFrom}");
-                htmlContent.Append("<br />");
-                htmlContent.Append($"Valid to: {site.ValidTo}");
-                htmlContent.Append("<br />");
-                htmlContent.Append($"Expires in: {diff.TotalDays.ToString("0")} days</p>");
-                htmlContent.Append($"<hr /><br />");
-
                 plainTextContent.Append($"Valid from: {site.ValidFrom}{Environment.NewLine}");
                 plainTextContent.Append($"Valid to: {site.ValidTo}{Environment.NewLine}");
-                plainTextContent.Append($"Expires in: {diff.TotalDays.ToString("0")} days{Environment.NewLine}");
+                plainTextContent.Append($"Expires in: {site.ValidDays} days{Environment.NewLine}");
                 plainTextContent.Append($"{Environment.NewLine}{Environment.NewLine}{Environment.NewLine}");
             }
+
+            htmlContent.Append(@"
+</body>
+</html>");
 
             var apiKey = settings.SendGrid;
             var client = new SendGridClient(apiKey);

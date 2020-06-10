@@ -15,5 +15,15 @@ namespace CertifcateChecker
         public string Issuer { get; set; }
 
         public string Subject { get; set; }
+
+        public int ValidDays
+        {
+            get
+            {
+                var diff = ValidTo.Date - DateTime.UtcNow.Date;
+
+                return (int)diff.TotalDays;
+            }
+        }
     }
 }
